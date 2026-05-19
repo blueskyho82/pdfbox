@@ -1,0 +1,1595 @@
+<!DOCTYPE html>
+<html lang="ko" class="h-full">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Samwoo PDF Box</title>
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            navy:   { 900: '#1B2A4A', 700: '#2D4070', 100: '#EBF0F8' },
+            safety: { 500: '#D4A900', 400: '#F5C400' },
+            surface:          '#F4F6F9',
+            border:           '#DDE3ED',
+            'text-primary':   '#1A202C',
+            'text-secondary': '#4A5568',
+          },
+        },
+      },
+    };
+  </script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/fuse.js@7.0.0/dist/fuse.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+
+  <!-- FOUC 방지: 렌더 전에 dark 클래스 적용 -->
+  <script>
+    (function () {
+      var s = localStorage.getItem('pdfbox-theme');
+      var p = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      if (s === 'dark' || (!s && p)) document.documentElement.classList.add('dark');
+    })();
+  </script>
+
+  <style>
+    #sidebar-drawer { transition: transform 200ms ease-in-out; }
+    .cat-btn.active { background-color: #EBF0F8; color: #1B2A4A; font-weight: 600; }
+    .cat-btn.active svg { color: #1B2A4A; }
+    .skip-link { position: absolute; top: -40px; left: 0; background: #1B2A4A; color: white; padding: 8px; z-index: 100; }
+    .skip-link:focus { top: 0; }
+    #upload-zone.drag-over { border-color: #F5C400; background-color: rgba(235,240,248,0.8); }
+    @keyframes slideIn { from { transform: translateX(120%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+    .toast { animation: slideIn 200ms ease-out; }
+
+    /* ── 네이티브 dialog 기본 스타일 ───────────────────────── */
+    dialog { max-width: 24rem; width: calc(100% - 2rem); border: none; padding: 0;
+             border-radius: 1rem; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25); }
+    dialog::backdrop { background-color: rgba(0, 0, 0, 0.6); }
+
+    /* ── 다크 모드 보조 오버라이드 ─────────────────────────── */
+    .dark .cat-btn { color: #94a3b8; }
+    .dark .cat-btn:hover { background-color: #334155; color: #f1f5f9; }
+    .dark .cat-btn.active { background-color: #334155; color: #f1f5f9; }
+    .dark .cat-btn.active svg { color: #f1f5f9; }
+    .dark #upload-zone.drag-over { border-color: #F5C400; background-color: rgba(51,65,85,0.8); }
+  </style>
+</head>
+
+<body class="h-full bg-surface dark:bg-slate-900 text-text-primary dark:text-slate-100 flex flex-col overflow-hidden">
+  <a href="#main-content" class="skip-link">본문으로 바로가기</a>
+
+  <!-- ── 헤더 ─────────────────────────────────────────────── -->
+  <header class="bg-navy-900 text-white flex-shrink-0 shadow-lg z-30">
+    <div class="flex items-center gap-3 px-4 py-3">
+      <button id="sidebar-toggle"
+        class="lg:hidden flex-shrink-0 p-2 rounded-md hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-safety-400"
+        aria-label="사이드바 열기" aria-expanded="false" aria-controls="sidebar-drawer">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/>
+        </svg>
+      </button>
+
+      <div class="flex items-center gap-2 flex-shrink-0">
+        <div class="w-8 h-8 bg-safety-400 rounded flex items-center justify-center" aria-hidden="true">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-navy-900" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+          </svg>
+        </div>
+        <span class="font-bold text-lg tracking-tight hidden sm:inline">Samwoo PDF Box</span>
+        <span class="font-bold text-base sm:hidden">PDF Box</span>
+      </div>
+
+      <div class="flex-1 relative">
+        <label for="title-search" class="sr-only">제목 검색</label>
+        <input id="title-search" type="search" placeholder="제목으로 검색…"
+          class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-sm placeholder-white/50 text-white focus:outline-none focus:ring-2 focus:ring-safety-400 focus:bg-white/15"
+          autocomplete="off" />
+        <svg class="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40 pointer-events-none"
+          xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+        </svg>
+      </div>
+
+      <button id="upload-btn"
+        class="flex-shrink-0 flex items-center gap-1.5 bg-safety-400 hover:bg-safety-500 text-navy-900 font-semibold text-sm px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-white transition-colors"
+        aria-label="PDF 업로드">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+        </svg>
+        <span class="hidden sm:inline">업로드</span>
+      </button>
+
+      <!-- 다크 모드 토글 -->
+      <button id="theme-toggle"
+        class="flex-shrink-0 p-2 rounded-lg hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-safety-400 transition-colors"
+        aria-label="다크 모드로 전환" title="테마 전환">
+        <!-- 달 (라이트 모드일 때 표시) -->
+        <svg id="icon-moon" xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>
+        </svg>
+        <!-- 태양 (다크 모드일 때 표시) -->
+        <svg id="icon-sun" xmlns="http://www.w3.org/2000/svg" class="hidden w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>
+        </svg>
+      </button>
+
+      <button id="export-btn"
+        class="flex-shrink-0 p-2 rounded-lg hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-safety-400 transition-colors"
+        aria-label="ZIP으로 내보내기" title="ZIP 내보내기">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="px-4 pb-3">
+      <label for="content-search" class="sr-only">내용으로 검색</label>
+      <input id="content-search" type="search" placeholder="PDF 내용으로 검색… (2자 이상)"
+        class="w-full bg-white/8 border border-white/10 rounded-lg px-4 py-1.5 text-xs placeholder-white/40 text-white focus:outline-none focus:ring-1 focus:ring-safety-400"
+        autocomplete="off" />
+    </div>
+  </header>
+
+  <!-- ── 본문 ──────────────────────────────────────────────── -->
+  <div class="flex flex-1 overflow-hidden relative">
+    <div id="sidebar-backdrop" class="fixed inset-0 bg-black/40 z-20 hidden lg:hidden" aria-hidden="true"></div>
+
+    <!-- 사이드바 -->
+    <aside id="sidebar-drawer"
+      class="fixed lg:relative top-0 left-0 bottom-0 z-30 lg:z-auto w-64 lg:w-56 bg-white dark:bg-slate-800 border-r border-border dark:border-slate-700 flex flex-col -translate-x-full lg:translate-x-0"
+      aria-label="카테고리 네비게이션">
+
+      <div class="flex items-center justify-between p-4 lg:hidden border-b border-border dark:border-slate-700">
+        <span class="font-semibold text-sm text-text-primary">카테고리</span>
+        <button id="sidebar-close" class="p-1.5 rounded-md hover:bg-navy-100 focus:outline-none focus:ring-2 focus:ring-navy-700" aria-label="사이드바 닫기">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+
+      <nav class="flex-1 overflow-y-auto p-3 space-y-1" aria-label="카테고리">
+        <p class="text-xs font-semibold text-text-secondary dark:text-slate-500 uppercase tracking-wider px-3 py-2">문서 분류</p>
+
+        <button class="cat-btn active w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-text-secondary hover:bg-navy-100 hover:text-navy-900 transition-colors focus:outline-none focus:ring-2 focus:ring-navy-700" data-category="전체">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+          <span class="flex-1 text-left">전체</span>
+          <span class="cat-count text-xs bg-navy-100 text-navy-700 font-medium px-2 py-0.5 rounded-full" data-category="전체">0</span>
+        </button>
+
+        <button class="cat-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-text-secondary hover:bg-navy-100 hover:text-navy-900 transition-colors focus:outline-none focus:ring-2 focus:ring-navy-700" data-category="규정">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>
+          <span class="flex-1 text-left">규정</span>
+          <span class="cat-count text-xs bg-navy-100 text-navy-700 font-medium px-2 py-0.5 rounded-full" data-category="규정">0</span>
+        </button>
+
+        <button class="cat-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-text-secondary hover:bg-navy-100 hover:text-navy-900 transition-colors focus:outline-none focus:ring-2 focus:ring-navy-700" data-category="매뉴얼">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>
+          <span class="flex-1 text-left">매뉴얼</span>
+          <span class="cat-count text-xs bg-navy-100 text-navy-700 font-medium px-2 py-0.5 rounded-full" data-category="매뉴얼">0</span>
+        </button>
+
+        <button class="cat-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-text-secondary hover:bg-navy-100 hover:text-navy-900 transition-colors focus:outline-none focus:ring-2 focus:ring-navy-700" data-category="견적">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+          <span class="flex-1 text-left">견적</span>
+          <span class="cat-count text-xs bg-navy-100 text-navy-700 font-medium px-2 py-0.5 rounded-full" data-category="견적">0</span>
+        </button>
+
+        <button class="cat-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-text-secondary hover:bg-navy-100 hover:text-navy-900 transition-colors focus:outline-none focus:ring-2 focus:ring-navy-700" data-category="기타">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z"/></svg>
+          <span class="flex-1 text-left">기타</span>
+          <span class="cat-count text-xs bg-navy-100 text-navy-700 font-medium px-2 py-0.5 rounded-full" data-category="기타">0</span>
+        </button>
+      </nav>
+
+      <div class="flex-shrink-0 border-t border-border dark:border-slate-700 p-4">
+        <div class="flex items-center justify-between mb-1.5">
+          <span class="text-xs font-medium text-text-secondary dark:text-slate-400">저장소</span>
+          <span id="storage-text" class="text-xs text-text-secondary dark:text-slate-400">계산 중…</span>
+        </div>
+        <div role="progressbar" aria-label="저장소 사용량" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"
+          class="h-1.5 bg-navy-100 dark:bg-slate-700 rounded-full overflow-hidden">
+          <div id="storage-bar" class="h-full bg-navy-700 rounded-full transition-all" style="width:0%"></div>
+        </div>
+        <button id="reset-btn"
+          class="mt-3 w-full text-xs text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg py-1.5 transition-colors focus:outline-none focus:ring-2 focus:ring-red-400"
+          aria-label="문서함 전체 초기화">
+          전체 초기화
+        </button>
+      </div>
+    </aside>
+
+    <!-- 메인 -->
+    <main id="main-content" class="flex-1 flex flex-col overflow-hidden">
+      <div class="flex-shrink-0 flex items-center justify-between px-4 py-2.5 bg-white dark:bg-slate-800 border-b border-border dark:border-slate-700 gap-3">
+        <div class="flex items-center gap-3">
+          <label for="sort-select" class="sr-only">정렬 기준</label>
+          <select id="sort-select"
+            class="text-sm border border-border dark:border-slate-600 rounded-md px-2.5 py-1.5 bg-white dark:bg-slate-700 text-text-primary dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-navy-700">
+            <option value="uploadedAt-desc">최신순</option>
+            <option value="uploadedAt-asc">오래된순</option>
+            <option value="title-asc">이름 오름차순</option>
+            <option value="title-desc">이름 내림차순</option>
+            <option value="fileSize-desc">크기 큰순</option>
+          </select>
+          <span id="doc-count" class="text-xs text-text-secondary dark:text-slate-400" aria-live="polite">문서 0개</span>
+        </div>
+        <button id="reset-search-btn" class="hidden text-xs text-navy-700 hover:underline focus:outline-none focus:ring-2 focus:ring-navy-700 rounded">
+          검색 초기화
+        </button>
+      </div>
+
+      <div class="flex-1 overflow-y-auto p-4">
+        <!-- 빈 상태 / 드롭존 -->
+        <div id="empty-state" class="flex flex-col items-center justify-center min-h-full">
+          <div id="upload-zone"
+            class="w-full max-w-lg border-2 border-dashed border-border dark:border-slate-600 rounded-2xl p-12 flex flex-col items-center gap-5 text-center cursor-pointer hover:border-safety-400 hover:bg-navy-100/50 dark:hover:bg-slate-800 transition-colors"
+            role="button" tabindex="0" aria-label="PDF 파일을 끌어다 놓거나 클릭하여 업로드">
+            <div class="w-16 h-16 bg-navy-100 dark:bg-slate-700 rounded-full flex items-center justify-center pointer-events-none">
+              <svg xmlns="http://www.w3.org/2000/svg" class="w-8 h-8 text-navy-700" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+              </svg>
+            </div>
+            <div class="pointer-events-none">
+              <p class="text-base font-semibold text-text-primary dark:text-slate-100 mb-1">PDF 파일을 여기에 끌어다 놓으세요</p>
+              <p class="text-sm text-text-secondary dark:text-slate-400">또는 버튼을 클릭하여 파일을 선택하세요</p>
+              <p class="text-xs text-text-secondary dark:text-slate-500 mt-2">PDF 파일 · 최대 50MB · 여러 파일 동시 가능</p>
+            </div>
+            <button id="zone-upload-btn"
+              class="flex items-center gap-2 bg-safety-400 hover:bg-safety-500 text-navy-900 font-semibold text-sm px-5 py-2.5 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-900 transition-colors">
+              <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+              </svg>
+              PDF 업로드
+            </button>
+          </div>
+        </div>
+
+        <!-- 검색 결과 없음 (문서는 있으나 쿼리 불일치) -->
+        <div id="no-result" class="hidden flex flex-col items-center justify-center min-h-full gap-4 py-24 dark:text-slate-300">
+          <div class="w-14 h-14 bg-navy-100 rounded-full flex items-center justify-center">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-7 h-7 text-navy-700" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+            </svg>
+          </div>
+          <div class="text-center">
+            <p class="text-sm font-semibold text-text-primary mb-1">검색 결과가 없습니다</p>
+            <p class="text-xs text-text-secondary">다른 검색어를 입력하거나 카테고리를 변경해 보세요.</p>
+          </div>
+          <button onclick="document.getElementById('reset-search-btn').click()"
+            class="text-xs text-navy-700 hover:underline focus:outline-none focus:ring-2 focus:ring-navy-700 rounded px-2 py-1">
+            검색 초기화
+          </button>
+        </div>
+
+        <!-- 카드 그리드 -->
+        <div id="card-grid" class="hidden grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4" aria-label="문서 목록"></div>
+      </div>
+    </main>
+
+    <!-- 미리보기 패널 (lg 이상) -->
+    <aside id="preview-panel" class="hidden lg:flex w-80 flex-shrink-0 bg-white dark:bg-slate-800 border-l border-border dark:border-slate-700 flex-col" aria-label="PDF 미리보기">
+      <div id="preview-placeholder" class="flex-1 flex flex-col items-center justify-center gap-4 p-8 text-center">
+        <div class="w-16 h-16 bg-navy-100 rounded-full flex items-center justify-center">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-8 h-8 text-navy-700" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+            <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+          </svg>
+        </div>
+        <p class="text-sm text-text-secondary leading-relaxed">카드를 클릭하면<br />여기에 PDF가 표시됩니다</p>
+      </div>
+
+      <div id="preview-content" class="hidden flex-1 flex flex-col overflow-hidden">
+        <div class="flex-shrink-0 flex items-center justify-between p-3 border-b border-border gap-2">
+          <p id="preview-title" class="text-sm font-semibold text-text-primary truncate flex-1"></p>
+          <button id="preview-close" class="flex-shrink-0 p-1.5 rounded-md hover:bg-navy-100 focus:outline-none focus:ring-2 focus:ring-navy-700" aria-label="미리보기 닫기">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>
+        <div class="flex-1 overflow-y-auto bg-gray-100 p-2 flex items-start justify-center">
+          <canvas id="preview-canvas" class="shadow-md max-w-full"></canvas>
+        </div>
+        <div class="flex-shrink-0 flex items-center justify-center gap-3 p-3 border-t border-border">
+          <button id="preview-prev" class="p-1.5 rounded-md hover:bg-navy-100 disabled:opacity-30 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-navy-700" aria-label="이전 페이지" disabled>
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+          </button>
+          <span id="preview-page-info" class="text-xs text-text-secondary">0 / 0</span>
+          <button id="preview-next" class="p-1.5 rounded-md hover:bg-navy-100 disabled:opacity-30 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-navy-700" aria-label="다음 페이지" disabled>
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+          </button>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- ── PDF 미리보기 모달 ───────────────────────────────── -->
+  <div id="pdf-modal"
+    class="hidden fixed inset-0 z-40 flex flex-col sm:items-center sm:justify-center sm:p-4"
+    role="dialog" aria-modal="true" aria-labelledby="modal-doc-title">
+
+    <!-- 배경 딤 (데스크탑 클릭으로 닫기) -->
+    <div id="modal-backdrop" class="absolute inset-0 bg-black/60 hidden sm:block"></div>
+
+    <!-- 패널: 모바일 전체화면 / 데스크탑 카드 -->
+    <div class="relative flex flex-col flex-1 sm:flex-none w-full
+                sm:w-[92vw] sm:max-w-3xl sm:max-h-[90vh]
+                bg-white dark:bg-slate-800 sm:rounded-2xl overflow-hidden sm:shadow-2xl">
+
+      <!-- 헤더 -->
+      <div class="flex-shrink-0 flex items-center gap-2 px-4 py-3 border-b border-border dark:border-slate-700 bg-white dark:bg-slate-800">
+        <div class="flex-1 min-w-0">
+          <p id="modal-doc-title" class="text-sm font-semibold text-text-primary truncate"></p>
+          <p id="modal-doc-meta"  class="text-xs text-text-secondary mt-0.5"></p>
+        </div>
+        <button id="modal-download-btn"
+          class="flex-shrink-0 p-2 rounded-lg hover:bg-navy-100 focus:outline-none focus:ring-2 focus:ring-navy-700 transition-colors"
+          aria-label="PDF 다운로드">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-navy-700" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+          </svg>
+        </button>
+        <button id="modal-close-btn"
+          class="flex-shrink-0 p-2 rounded-lg hover:bg-navy-100 focus:outline-none focus:ring-2 focus:ring-navy-700 transition-colors"
+          aria-label="닫기">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- 캔버스 영역 -->
+      <div id="modal-canvas-wrap" class="flex-1 overflow-y-auto bg-gray-50 dark:bg-slate-900 flex flex-col items-center justify-start p-4 gap-0">
+        <!-- 로딩 -->
+        <div id="modal-loading" class="flex items-center justify-center w-full py-20">
+          <div class="w-10 h-10 border-4 border-navy-100 border-t-navy-700 rounded-full animate-spin"></div>
+        </div>
+        <!-- 에러 -->
+        <div id="modal-error" class="hidden flex flex-col items-center gap-3 py-20 text-center">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-10 h-10 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+          </svg>
+          <p id="modal-error-msg" class="text-sm text-text-secondary"></p>
+        </div>
+        <!-- 캔버스 -->
+        <canvas id="modal-canvas" class="hidden shadow-lg rounded"></canvas>
+      </div>
+
+      <!-- 푸터: 페이지 네비 -->
+      <div class="flex-shrink-0 flex items-center justify-between px-4 py-2.5 border-t border-border dark:border-slate-700 bg-white dark:bg-slate-800">
+        <button id="modal-prev-btn"
+          class="flex items-center gap-1.5 text-sm font-medium text-navy-700 hover:bg-navy-100 disabled:opacity-30 disabled:cursor-not-allowed px-3 py-1.5 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-navy-700"
+          aria-label="이전 페이지" disabled>
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
+          </svg>
+          이전
+        </button>
+        <span id="modal-page-info" class="text-sm tabular-nums text-text-secondary">– / –</span>
+        <button id="modal-next-btn"
+          class="flex items-center gap-1.5 text-sm font-medium text-navy-700 hover:bg-navy-100 disabled:opacity-30 disabled:cursor-not-allowed px-3 py-1.5 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-navy-700"
+          aria-label="다음 페이지" disabled>
+          다음
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 삭제 확인 다이얼로그 ──────────────────────────────── -->
+  <dialog id="delete-confirm" aria-labelledby="delete-confirm-heading">
+    <div class="p-6 space-y-4">
+      <h2 id="delete-confirm-heading" class="text-base font-semibold text-text-primary">문서 삭제</h2>
+      <p id="delete-confirm-msg" class="text-sm text-text-secondary leading-relaxed"></p>
+      <div class="flex gap-2 pt-1">
+        <button id="delete-cancel-btn"
+          class="flex-1 text-sm font-medium border border-border rounded-lg py-2 hover:bg-navy-100 focus:outline-none focus:ring-2 focus:ring-navy-700 transition-colors">
+          취소
+        </button>
+        <button id="delete-ok-btn"
+          class="flex-1 text-sm font-semibold bg-red-600 hover:bg-red-700 text-white rounded-lg py-2 focus:outline-none focus:ring-2 focus:ring-red-400 transition-colors">
+          삭제
+        </button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- ── 전체 초기화 확인 다이얼로그 ───────────────────────── -->
+  <dialog id="reset-confirm" aria-labelledby="reset-confirm-heading">
+    <div class="p-6 space-y-4">
+      <h2 id="reset-confirm-heading" class="text-base font-semibold text-text-primary">전체 초기화</h2>
+      <p class="text-sm text-text-secondary leading-relaxed">저장된 모든 문서와 데이터가 삭제됩니다. 이 작업은 되돌릴 수 없습니다.</p>
+      <div class="flex gap-2 pt-1">
+        <button id="reset-cancel-btn"
+          class="flex-1 text-sm font-medium border border-border rounded-lg py-2 hover:bg-navy-100 focus:outline-none focus:ring-2 focus:ring-navy-700 transition-colors">
+          취소
+        </button>
+        <button id="reset-ok-btn"
+          class="flex-1 text-sm font-semibold bg-red-600 hover:bg-red-700 text-white rounded-lg py-2 focus:outline-none focus:ring-2 focus:ring-red-400 transition-colors">
+          초기화
+        </button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- ── 업로드 편집 모달 ───────────────────────────────────── -->
+  <div id="upload-modal"
+    class="hidden fixed inset-0 z-45 flex items-end sm:items-center sm:justify-center sm:p-4"
+    role="dialog" aria-modal="true" aria-labelledby="upload-modal-title">
+    <div id="upload-modal-backdrop" class="absolute inset-0 bg-black/60"></div>
+    <div class="relative w-full sm:max-w-lg bg-white dark:bg-slate-800 rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col max-h-[90vh]">
+      <div class="flex-shrink-0 flex items-center justify-between px-5 py-4 border-b border-border dark:border-slate-700">
+        <h2 id="upload-modal-title" class="text-sm font-semibold text-text-primary dark:text-slate-100">문서 정보 입력</h2>
+        <span id="upload-modal-count" class="text-xs text-text-secondary dark:text-slate-400"></span>
+      </div>
+      <div id="upload-modal-body" class="flex-1 overflow-y-auto px-5 py-4 space-y-4"></div>
+      <div class="flex-shrink-0 flex gap-2 px-5 py-4 border-t border-border dark:border-slate-700">
+        <button id="upload-modal-cancel"
+          class="flex-1 text-sm font-medium text-text-secondary dark:text-slate-300 border border-border dark:border-slate-600 rounded-lg py-2 hover:bg-navy-100 dark:hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-navy-700 transition-colors">
+          취소
+        </button>
+        <button id="upload-modal-confirm"
+          class="flex-1 text-sm font-semibold bg-safety-400 hover:bg-safety-500 text-navy-900 rounded-lg py-2 focus:outline-none focus:ring-2 focus:ring-navy-900 transition-colors">
+          저장
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 업로드 스피너 오버레이 ───────────────────────────── -->
+  <div id="upload-spinner" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
+    <div class="bg-white rounded-2xl p-8 flex flex-col items-center gap-4 shadow-2xl min-w-72">
+      <div class="w-12 h-12 border-4 border-navy-100 border-t-navy-700 rounded-full animate-spin"></div>
+      <div class="text-center">
+        <p id="spinner-text" class="text-sm font-semibold text-text-primary">PDF 처리 중…</p>
+        <p class="text-xs text-text-secondary mt-1">잠시만 기다려 주세요</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 토스트 컨테이너 ──────────────────────────────────── -->
+  <div id="toast-container" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none" aria-live="polite" aria-atomic="false"></div>
+
+  <!-- ── 숨겨진 파일 입력 ─────────────────────────────────── -->
+  <input id="file-input" type="file" accept=".pdf,application/pdf" multiple class="hidden" aria-hidden="true" />
+
+  <!-- ── 앱 스크립트 ──────────────────────────────────────── -->
+  <script>
+    // ═══════════════════════════════════════════════════════
+    // 전역 상태
+    // ═══════════════════════════════════════════════════════
+    const APP = {
+      db:             null,
+      docs:           [],
+      activeCategory: '전체',
+      currentSort:    localStorage.getItem('pdfbox-sort') || 'uploadedAt-desc',
+      selectedId:     null,
+      state:          'idle',
+      titleQuery:     '',
+      contentQuery:   '',
+      fuseIndex:      null,
+    };
+
+    // ═══════════════════════════════════════════════════════
+    // IndexedDB helpers
+    // ═══════════════════════════════════════════════════════
+    function initDB() {
+      return new Promise((resolve, reject) => {
+        const req = indexedDB.open('pdfbox', 1);
+        req.onupgradeneeded = (e) => {
+          const db = e.target.result;
+          if (!db.objectStoreNames.contains('blobs')) {
+            db.createObjectStore('blobs', { keyPath: 'id' });
+          }
+        };
+        req.onsuccess = (e) => { APP.db = e.target.result; resolve(); };
+        req.onerror   = () => reject(req.error);
+      });
+    }
+
+    function dbPut(record) {
+      return new Promise((resolve, reject) => {
+        const tx = APP.db.transaction('blobs', 'readwrite');
+        tx.objectStore('blobs').put(record);
+        tx.oncomplete = resolve;
+        tx.onerror    = () => reject(tx.error);
+      });
+    }
+
+    function dbGet(id) {
+      return new Promise((resolve, reject) => {
+        const tx  = APP.db.transaction('blobs', 'readonly');
+        const req = tx.objectStore('blobs').get(id);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror   = () => reject(req.error);
+      });
+    }
+
+    function dbDelete(id) {
+      return new Promise((resolve, reject) => {
+        const tx = APP.db.transaction('blobs', 'readwrite');
+        tx.objectStore('blobs').delete(id);
+        tx.oncomplete = resolve;
+        tx.onerror    = () => reject(tx.error);
+      });
+    }
+
+    function dbClearAll() {
+      return new Promise((resolve, reject) => {
+        const tx = APP.db.transaction('blobs', 'readwrite');
+        tx.objectStore('blobs').clear();
+        tx.oncomplete = resolve;
+        tx.onerror    = () => reject(tx.error);
+      });
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // LocalStorage
+    // ═══════════════════════════════════════════════════════
+    function loadDocs() {
+      try { return JSON.parse(localStorage.getItem('pdfbox-docs') || '[]'); }
+      catch { return []; }
+    }
+    function saveDocs(docs) {
+      localStorage.setItem('pdfbox-docs', JSON.stringify(docs));
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // 본문 인덱스 (LocalStorage 'pdfbox-bodyIndex')
+    // ═══════════════════════════════════════════════════════
+    const BODY_INDEX_KEY = 'pdfbox-bodyIndex';
+    const MAX_TEXT_CHARS = 60000; // 문서당 최대 인덱싱 길이
+
+    function loadBodyIndex() {
+      try { return JSON.parse(localStorage.getItem(BODY_INDEX_KEY) || '{}'); }
+      catch { return {}; }
+    }
+
+    function addToBodyIndex(id, text) {
+      try {
+        const idx = loadBodyIndex();
+        idx[id] = text.slice(0, MAX_TEXT_CHARS);
+        localStorage.setItem(BODY_INDEX_KEY, JSON.stringify(idx));
+      } catch {
+        // 저장소 초과 시 무시 — 제목 검색은 여전히 동작
+      }
+    }
+
+    function removeFromBodyIndex(id) {
+      try {
+        const idx = loadBodyIndex();
+        delete idx[id];
+        localStorage.setItem(BODY_INDEX_KEY, JSON.stringify(idx));
+      } catch { /* ignore */ }
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // 검색 필터링
+    // ═══════════════════════════════════════════════════════
+    function debounce(fn, ms) {
+      let t;
+      return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+    }
+
+    function initFuse(docs) {
+      if (typeof Fuse === 'undefined') { APP.fuseIndex = null; return; }
+      APP.fuseIndex = new Fuse(docs, {
+        keys: ['title', 'tags'],
+        threshold: 0.4,
+        includeScore: true,
+      });
+    }
+
+    function getFilteredDocs() {
+      let result = APP.docs;
+
+      if (APP.activeCategory !== '전체') {
+        result = result.filter((d) => (d.tags || []).includes(APP.activeCategory));
+      }
+
+      if (APP.titleQuery) {
+        if (APP.fuseIndex) {
+          const hits   = APP.fuseIndex.search(APP.titleQuery);
+          const hitIds = new Set(hits.map((r) => r.item.id));
+          result = result.filter((d) => hitIds.has(d.id));
+        } else {
+          const q = APP.titleQuery.toLowerCase();
+          result = result.filter((d) =>
+            d.title.toLowerCase().includes(q) ||
+            (d.tags || []).some((t) => t.toLowerCase().includes(q))
+          );
+        }
+      }
+
+      if (APP.contentQuery.length >= 2) {
+        const q   = APP.contentQuery.toLowerCase();
+        const idx = loadBodyIndex();
+        result = result.filter((d) => (idx[d.id] || '').toLowerCase().includes(q));
+      }
+
+      return result;
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // 토스트
+    // ═══════════════════════════════════════════════════════
+    function showToast(msg, type = 'info') {
+      const colors = {
+        info:    'bg-navy-900 text-white',
+        success: 'bg-green-700 text-white',
+        error:   'bg-red-700 text-white',
+        warning: 'bg-safety-400 text-navy-900',
+      };
+      const el = document.createElement('div');
+      el.className = `toast pointer-events-auto ${colors[type] || colors.info} rounded-lg shadow-lg px-4 py-3 text-sm max-w-sm`;
+      el.textContent = msg;
+      el.setAttribute('role', 'alert');
+      document.getElementById('toast-container').appendChild(el);
+      setTimeout(() => el.remove(), 3500);
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // 스피너
+    // ═══════════════════════════════════════════════════════
+    function showSpinner(text) {
+      document.getElementById('spinner-text').textContent = text;
+      document.getElementById('upload-spinner').classList.remove('hidden');
+    }
+    function updateSpinner(text) {
+      document.getElementById('spinner-text').textContent = text;
+    }
+    function hideSpinner() {
+      document.getElementById('upload-spinner').classList.add('hidden');
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // 다크 모드
+    // ═══════════════════════════════════════════════════════
+    function applyTheme(dark) {
+      document.documentElement.classList.toggle('dark', dark);
+      document.getElementById('icon-moon').classList.toggle('hidden', dark);
+      document.getElementById('icon-sun').classList.toggle('hidden', !dark);
+      document.getElementById('theme-toggle').setAttribute(
+        'aria-label', dark ? '라이트 모드로 전환' : '다크 모드로 전환'
+      );
+    }
+
+    document.getElementById('theme-toggle').addEventListener('click', () => {
+      const isDark = !document.documentElement.classList.contains('dark');
+      localStorage.setItem('pdfbox-theme', isDark ? 'dark' : 'light');
+      applyTheme(isDark);
+    });
+
+    // ═══════════════════════════════════════════════════════
+    // 사이드바 토글
+    // ═══════════════════════════════════════════════════════
+    const sidebar   = document.getElementById('sidebar-drawer');
+    const backdrop  = document.getElementById('sidebar-backdrop');
+    const toggleBtn = document.getElementById('sidebar-toggle');
+
+    function openSidebar() {
+      sidebar.classList.remove('-translate-x-full');
+      backdrop.classList.remove('hidden');
+      toggleBtn.setAttribute('aria-expanded', 'true');
+      toggleBtn.setAttribute('aria-label', '사이드바 닫기');
+    }
+    function closeSidebar() {
+      sidebar.classList.add('-translate-x-full');
+      backdrop.classList.add('hidden');
+      toggleBtn.setAttribute('aria-expanded', 'false');
+      toggleBtn.setAttribute('aria-label', '사이드바 열기');
+    }
+
+    toggleBtn.addEventListener('click', () =>
+      toggleBtn.getAttribute('aria-expanded') === 'true' ? closeSidebar() : openSidebar());
+    backdrop.addEventListener('click', closeSidebar);
+    document.getElementById('sidebar-close').addEventListener('click', closeSidebar);
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSidebar(); });
+
+    // ═══════════════════════════════════════════════════════
+    // 카테고리
+    // ═══════════════════════════════════════════════════════
+    document.querySelectorAll('.cat-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.cat-btn').forEach((b) => {
+          b.classList.remove('active');
+          b.removeAttribute('aria-current');
+        });
+        btn.classList.add('active');
+        btn.setAttribute('aria-current', 'true');
+        APP.activeCategory = btn.dataset.category;
+        renderCardGrid();
+        if (window.innerWidth < 1024) closeSidebar();
+      });
+    });
+    // 초기 active 버튼에 aria-current 설정
+    document.querySelector('.cat-btn.active')?.setAttribute('aria-current', 'true');
+
+    // ═══════════════════════════════════════════════════════
+    // 정렬
+    // ═══════════════════════════════════════════════════════
+    const sortSelect = document.getElementById('sort-select');
+    sortSelect.value = APP.currentSort;
+    sortSelect.addEventListener('change', () => {
+      APP.currentSort = sortSelect.value;
+      localStorage.setItem('pdfbox-sort', APP.currentSort);
+      renderCardGrid();
+    });
+
+    function getSortedDocs(docs) {
+      const [field, dir] = APP.currentSort.split('-');
+      return [...docs].sort((a, b) => {
+        let av = a[field] ?? '', bv = b[field] ?? '';
+        if (typeof av === 'string') { av = av.toLowerCase(); bv = bv.toLowerCase(); }
+        if (av < bv) return dir === 'asc' ? -1 :  1;
+        if (av > bv) return dir === 'asc' ?  1 : -1;
+        return 0;
+      });
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // 카드 그리드 렌더링
+    // ═══════════════════════════════════════════════════════
+    function renderCardGrid() {
+      const filtered   = getFilteredDocs();
+      const sorted     = getSortedDocs(filtered);
+      const emptyState = document.getElementById('empty-state');
+      const cardGrid   = document.getElementById('card-grid');
+      const isSearching = APP.titleQuery || APP.contentQuery.length >= 2;
+
+      document.getElementById('doc-count').textContent =
+        isSearching ? `검색 결과 ${filtered.length}개` : `문서 ${filtered.length}개`;
+
+      if (sorted.length === 0) {
+        // 검색 중 결과 없음 vs 문서 없음
+        const uploadZone = document.getElementById('upload-zone');
+        const noResult   = document.getElementById('no-result');
+        if (isSearching && APP.docs.length > 0) {
+          uploadZone.classList.add('hidden');
+          noResult.classList.remove('hidden');
+        } else {
+          uploadZone.classList.remove('hidden');
+          noResult.classList.add('hidden');
+        }
+        emptyState.classList.remove('hidden');
+        cardGrid.classList.add('hidden');
+        cardGrid.innerHTML = '';
+      } else {
+        document.getElementById('no-result').classList.add('hidden');
+        document.getElementById('upload-zone').classList.remove('hidden');
+        emptyState.classList.add('hidden');
+        cardGrid.classList.remove('hidden');
+        cardGrid.innerHTML = '';
+        sorted.forEach((meta) => cardGrid.appendChild(createDocumentCard(meta)));
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // 카테고리 카운트 & 저장소 게이지
+    // ═══════════════════════════════════════════════════════
+    function updateCategoryCount() {
+      document.querySelectorAll('.cat-count').forEach((badge) => {
+        const cat   = badge.dataset.category;
+        const count = cat === '전체'
+          ? APP.docs.length
+          : APP.docs.filter((d) => (d.tags || []).includes(cat)).length;
+        badge.textContent = count;
+      });
+    }
+
+    async function updateStorageGauge() {
+      try {
+        const est    = await navigator.storage.estimate();
+        const used   = est.usage  || 0;
+        const quota  = est.quota  || 1;
+        const pct    = Math.min(100, Math.round((used / quota) * 100));
+        const usedMB = (used  / 1024 / 1024).toFixed(1);
+        const quotaMB= (quota / 1024 / 1024).toFixed(0);
+        document.getElementById('storage-text').textContent = `${usedMB}MB / ${quotaMB}MB`;
+        const bar = document.getElementById('storage-bar');
+        bar.style.width = pct + '%';
+        bar.parentElement.setAttribute('aria-valuenow', pct);
+        bar.style.backgroundColor = pct >= 90 ? '#ef4444' : pct >= 70 ? '#F5C400' : '#2D4070';
+      } catch {
+        document.getElementById('storage-text').textContent = '측정 불가';
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // 유틸
+    // ═══════════════════════════════════════════════════════
+    function formatDate(iso) {
+      return new Date(iso).toLocaleDateString('ko-KR', { year: 'numeric', month: 'short', day: 'numeric' });
+    }
+    function formatSize(bytes) {
+      return bytes >= 1024 * 1024
+        ? (bytes / 1024 / 1024).toFixed(1) + 'MB'
+        : Math.round(bytes / 1024) + 'KB';
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // DocumentCard
+    // ═══════════════════════════════════════════════════════
+    function createDocumentCard(meta) {
+      const card = document.createElement('article');
+      card.dataset.id = meta.id;
+      card.tabIndex   = 0;
+      card.setAttribute('role', 'button');
+      card.setAttribute('aria-label', `${meta.title} 문서 카드`);
+      card.className  = [
+        'bg-white dark:bg-slate-800 rounded-xl border border-border dark:border-slate-700 shadow-sm',
+        'hover:shadow-md hover:-translate-y-0.5 transition-all',
+        'cursor-pointer overflow-hidden flex flex-col group',
+        APP.selectedId === meta.id ? 'ring-2 ring-navy-700' : '',
+      ].join(' ');
+
+      // 썸네일
+      const thumbWrap = document.createElement('div');
+      thumbWrap.className = 'relative bg-gray-100 dark:bg-slate-700 overflow-hidden';
+      thumbWrap.style.aspectRatio = '3/4';
+
+      if (meta.thumbDataUrl) {
+        const img     = document.createElement('img');
+        img.src       = meta.thumbDataUrl;
+        img.alt       = `${meta.title} 1페이지 미리보기`;
+        img.className = 'w-full h-full object-cover object-top group-hover:scale-[1.02] transition-transform duration-200';
+        img.loading   = 'lazy';
+        thumbWrap.appendChild(img);
+      } else {
+        thumbWrap.innerHTML = `
+          <div class="w-full h-full flex items-center justify-center">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-16 h-16 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+            </svg>
+          </div>`;
+      }
+
+      const pageBadge     = document.createElement('span');
+      pageBadge.className = 'absolute bottom-2 right-2 text-xs bg-black/60 text-white px-1.5 py-0.5 rounded';
+      pageBadge.textContent = `${meta.pageCount || '?'}p`;
+      thumbWrap.appendChild(pageBadge);
+      card.appendChild(thumbWrap);
+
+      // 정보
+      const info = document.createElement('div');
+      info.className = 'p-3 flex flex-col flex-1 gap-1';
+
+      const titleEl = document.createElement('p');
+      titleEl.className   = 'text-sm font-semibold text-text-primary dark:text-slate-100 truncate';
+      titleEl.title       = meta.fileName;
+      titleEl.textContent = meta.title;
+
+      const metaEl = document.createElement('p');
+      metaEl.className   = 'text-xs text-text-secondary dark:text-slate-400';
+      metaEl.textContent = `${formatDate(meta.uploadedAt)} · ${formatSize(meta.fileSize)}`;
+
+      const tagsRow = document.createElement('div');
+      tagsRow.className = 'flex flex-wrap gap-1';
+      (meta.tags || []).forEach((tag) => {
+        const span = document.createElement('span');
+        span.className   = 'text-xs bg-navy-100 dark:bg-slate-700 text-navy-700 dark:text-slate-300 px-2 py-0.5 rounded-full';
+        span.textContent = tag;
+        tagsRow.appendChild(span);
+      });
+
+      const actions = document.createElement('div');
+      actions.className = 'flex gap-1.5 mt-auto pt-2';
+      actions.innerHTML  = `
+        <button class="download-btn flex-1 text-xs font-medium bg-navy-100 dark:bg-slate-700 hover:bg-navy-900 hover:text-white text-navy-700 dark:text-slate-300 rounded-lg py-1.5 transition-colors focus:outline-none focus:ring-2 focus:ring-navy-700"
+          aria-label="${meta.title} 다운로드">다운로드</button>
+        <button class="delete-btn text-xs font-medium text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg px-2.5 py-1.5 transition-colors focus:outline-none focus:ring-2 focus:ring-red-400"
+          aria-label="${meta.title} 삭제">삭제</button>
+      `;
+
+      info.append(titleEl, metaEl, tagsRow, actions);
+      card.appendChild(info);
+
+      // 이벤트
+      const onCardActivate = () => selectCard(meta, card);
+      card.addEventListener('click', (e) => {
+        if (e.target.closest('.download-btn') || e.target.closest('.delete-btn')) return;
+        onCardActivate();
+      });
+      card.addEventListener('keydown', (e) => {
+        if ((e.key === 'Enter' || e.key === ' ') && !e.target.closest('button')) {
+          e.preventDefault();
+          onCardActivate();
+        }
+      });
+
+      actions.querySelector('.download-btn').addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const btn = e.currentTarget;
+        const orig = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = '…';
+        try {
+          await downloadDoc(meta.id, meta.fileName);
+        } finally {
+          btn.disabled = false;
+          btn.textContent = orig;
+        }
+      });
+      actions.querySelector('.delete-btn').addEventListener('click', (e) => {
+        e.stopPropagation();
+        openDeleteConfirm(meta.id, meta.title);
+      });
+
+      return card;
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // PDF 미리보기 모달
+    // ═══════════════════════════════════════════════════════
+    const MODAL = {
+      pdfDoc:      null,
+      currentPage: 1,
+      totalPages:  0,
+      renderToken: 0,  // 취소 토큰: 이전 렌더 무시
+      meta:        null,
+    };
+
+    function setModalNav() {
+      const prev = document.getElementById('modal-prev-btn');
+      const next = document.getElementById('modal-next-btn');
+      prev.disabled = MODAL.currentPage <= 1;
+      next.disabled = MODAL.currentPage >= MODAL.totalPages;
+      document.getElementById('modal-page-info').textContent =
+        `${MODAL.currentPage} / ${MODAL.totalPages}`;
+    }
+
+    async function renderModalPage(pageNum) {
+      if (!MODAL.pdfDoc) return;
+      const token = ++MODAL.renderToken;
+      MODAL.currentPage = pageNum;
+      setModalNav();
+
+      const loading = document.getElementById('modal-loading');
+      const errBox  = document.getElementById('modal-error');
+      const canvas  = document.getElementById('modal-canvas');
+      loading.classList.remove('hidden');
+      errBox.classList.add('hidden');
+      canvas.classList.add('hidden');
+
+      try {
+        const page = await MODAL.pdfDoc.getPage(pageNum);
+        if (token !== MODAL.renderToken) return;
+
+        const wrap       = document.getElementById('modal-canvas-wrap');
+        const availWidth = Math.max(wrap.clientWidth - 32, 280);
+        const vp0        = page.getViewport({ scale: 1 });
+        const scale      = Math.min(availWidth / vp0.width, 2.5);
+        const vp         = page.getViewport({ scale });
+
+        canvas.width  = Math.round(vp.width);
+        canvas.height = Math.round(vp.height);
+
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        await page.render({ canvasContext: ctx, viewport: vp }).promise;
+        if (token !== MODAL.renderToken) return;
+
+        loading.classList.add('hidden');
+        canvas.classList.remove('hidden');
+        // 페이지 전환 시 스크롤 맨 위
+        wrap.scrollTop = 0;
+      } catch (err) {
+        if (token !== MODAL.renderToken) return;
+        loading.classList.add('hidden');
+        document.getElementById('modal-error-msg').textContent = err.message;
+        errBox.classList.remove('hidden');
+      }
+    }
+
+    async function openPdfModal(meta) {
+      MODAL.meta = meta;
+      APP.selectedId = meta.id;
+
+      // 선택 링 표시
+      document.querySelectorAll('#card-grid article').forEach((c) => c.classList.remove('ring-2', 'ring-navy-700'));
+      document.querySelector(`#card-grid article[data-id="${meta.id}"]`)?.classList.add('ring-2', 'ring-navy-700');
+
+      // 헤더 정보 채우기
+      document.getElementById('modal-doc-title').textContent = meta.title;
+      document.getElementById('modal-doc-meta').textContent  =
+        `${formatDate(meta.uploadedAt)} · ${formatSize(meta.fileSize)} · ${meta.pageCount || '?'}페이지`;
+
+      // 모달 표시
+      const modal = document.getElementById('pdf-modal');
+      modal.classList.remove('hidden');
+      document.body.style.overflow = 'hidden';
+
+      // 초기 상태 리셋
+      document.getElementById('modal-loading').classList.remove('hidden');
+      document.getElementById('modal-error').classList.add('hidden');
+      document.getElementById('modal-canvas').classList.add('hidden');
+      document.getElementById('modal-page-info').textContent = '– / –';
+      document.getElementById('modal-prev-btn').disabled = true;
+      document.getElementById('modal-next-btn').disabled = true;
+
+      // 이전 pdf 해제
+      if (MODAL.pdfDoc) { MODAL.pdfDoc.destroy(); MODAL.pdfDoc = null; }
+
+      try {
+        const record = await dbGet(meta.id);
+        if (!record) throw new Error('IndexedDB에서 파일을 찾을 수 없습니다.');
+
+        let pdfjs = window.pdfjsLib;
+        if (!pdfjs && window.pdfjsReady) pdfjs = await window.pdfjsReady;
+        if (!pdfjs) throw new Error('PDF 라이브러리를 로드할 수 없습니다.');
+
+        MODAL.pdfDoc    = await pdfjs.getDocument({ data: new Uint8Array(record.data) }).promise;
+        MODAL.totalPages = MODAL.pdfDoc.numPages;
+        await renderModalPage(1);
+      } catch (err) {
+        document.getElementById('modal-loading').classList.add('hidden');
+        document.getElementById('modal-error-msg').textContent = err.message;
+        document.getElementById('modal-error').classList.remove('hidden');
+      }
+    }
+
+    function closeModal() {
+      if (MODAL.pdfDoc) { MODAL.pdfDoc.destroy(); MODAL.pdfDoc = null; }
+      ++MODAL.renderToken; // 진행 중인 render 취소
+      MODAL.meta = null;
+      document.getElementById('pdf-modal').classList.add('hidden');
+      document.body.style.overflow = '';
+    }
+
+    function selectCard(meta, cardEl) {
+      openPdfModal(meta);
+    }
+
+    // 모달 버튼 이벤트
+    document.getElementById('modal-close-btn').addEventListener('click', closeModal);
+    document.getElementById('modal-backdrop').addEventListener('click', closeModal);
+
+    document.getElementById('modal-prev-btn').addEventListener('click', () => {
+      if (MODAL.currentPage > 1) renderModalPage(MODAL.currentPage - 1);
+    });
+    document.getElementById('modal-next-btn').addEventListener('click', () => {
+      if (MODAL.currentPage < MODAL.totalPages) renderModalPage(MODAL.currentPage + 1);
+    });
+
+    document.getElementById('modal-download-btn').addEventListener('click', () => {
+      if (MODAL.meta) downloadDoc(MODAL.meta.id, MODAL.meta.fileName);
+    });
+
+    // ESC / 방향키
+    document.addEventListener('keydown', (e) => {
+      if (document.getElementById('pdf-modal').classList.contains('hidden')) return;
+      if (e.key === 'Escape')     { closeModal(); return; }
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        if (MODAL.currentPage < MODAL.totalPages) renderModalPage(MODAL.currentPage + 1);
+      }
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (MODAL.currentPage > 1) renderModalPage(MODAL.currentPage - 1);
+      }
+    });
+
+    document.getElementById('preview-close').addEventListener('click', () => {
+      document.getElementById('preview-content').classList.add('hidden');
+      document.getElementById('preview-placeholder').classList.remove('hidden');
+      document.querySelectorAll('#card-grid article').forEach((c) => c.classList.remove('ring-2', 'ring-navy-700'));
+      APP.selectedId = null;
+    });
+
+    // ═══════════════════════════════════════════════════════
+    // 다운로드 & 삭제
+    // ═══════════════════════════════════════════════════════
+    async function downloadDoc(id, fileName) {
+      try {
+        const record = await dbGet(id);
+        if (!record) { showToast('파일 데이터를 찾을 수 없습니다.', 'error'); return; }
+        const blob = new Blob([record.data], { type: 'application/pdf' });
+        const url  = URL.createObjectURL(blob);
+        const a    = Object.assign(document.createElement('a'), { href: url, download: fileName });
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      } catch (err) {
+        showToast('다운로드 실패: ' + err.message, 'error');
+      }
+    }
+
+    async function deleteDoc(id) {
+      try {
+        await dbDelete(id);
+        removeFromBodyIndex(id);
+        APP.docs = APP.docs.filter((d) => d.id !== id);
+        saveDocs(APP.docs);
+        if (APP.selectedId === id) {
+          APP.selectedId = null;
+          document.getElementById('preview-content').classList.add('hidden');
+          document.getElementById('preview-placeholder').classList.remove('hidden');
+        }
+        renderCardGrid();
+        updateCategoryCount();
+        await updateStorageGauge();
+        showToast('문서가 삭제되었습니다.', 'success');
+      } catch (err) {
+        showToast('삭제 실패: ' + err.message, 'error');
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // pdf.js 썸네일 추출
+    // ═══════════════════════════════════════════════════════
+    async function extractFromPdf(arrayBuffer) {
+      let pdfjs = window.pdfjsLib;
+      if (!pdfjs && window.pdfjsReady) pdfjs = await window.pdfjsReady;
+      if (!pdfjs) throw new Error('PDF 라이브러리를 로드할 수 없습니다.');
+
+      const pdf       = await pdfjs.getDocument({ data: new Uint8Array(arrayBuffer.slice(0)) }).promise;
+      const pageCount = pdf.numPages;
+
+      // 1페이지 썸네일
+      const page   = await pdf.getPage(1);
+      const vp0    = page.getViewport({ scale: 1 });
+      const scale  = Math.min(240 / vp0.width, 320 / vp0.height);
+      const vp     = page.getViewport({ scale });
+      const canvas = document.createElement('canvas');
+      canvas.width  = Math.round(vp.width);
+      canvas.height = Math.round(vp.height);
+      await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+      const thumbDataUrl = canvas.toDataURL('image/jpeg', 0.72);
+
+      // 전체 본문 텍스트 인덱싱 (1회)
+      const textParts = [];
+      let totalChars  = 0;
+      for (let i = 1; i <= pageCount && totalChars < MAX_TEXT_CHARS; i++) {
+        try {
+          const pg      = await pdf.getPage(i);
+          const content = await pg.getTextContent();
+          const text    = content.items.map((it) => it.str).join(' ');
+          textParts.push(text);
+          totalChars += text.length;
+        } catch { /* 해당 페이지 스킵 */ }
+      }
+      const textContent = textParts.join('\n');
+
+      pdf.destroy();
+      return { pageCount, thumbDataUrl, textContent };
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // 파일 큐 처리 (Phase 1: 추출 → Phase 2: 모달 편집 → Phase 3: 저장)
+    // ═══════════════════════════════════════════════════════
+    async function processFiles(fileList) {
+      const files = Array.from(fileList);
+      if (!files.length || APP.state === 'uploading') return;
+
+      APP.state = 'uploading';
+      showSpinner(`PDF 분석 중… (1 / ${files.length})`);
+
+      const prepared = [];
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        updateSpinner(`PDF 분석 중… (${i + 1} / ${files.length})  —  ${file.name}`);
+        if (!file.type.includes('pdf') && !file.name.toLowerCase().endsWith('.pdf')) {
+          showToast(`${file.name}: PDF 파일만 업로드할 수 있습니다.`, 'error');
+          continue;
+        }
+        if (file.size > 50 * 1024 * 1024) {
+          showToast(`${file.name}: 파일 크기는 50MB 이하여야 합니다.`, 'error');
+          continue;
+        }
+        try {
+          const arrayBuffer = await file.arrayBuffer();
+          const { pageCount, thumbDataUrl, textContent } = await extractFromPdf(arrayBuffer);
+          prepared.push({
+            id: crypto.randomUUID(),
+            arrayBuffer,
+            textContent,
+            title:    file.name.replace(/\.pdf$/i, ''),
+            tags:     [],
+            fileName: file.name,
+            fileSize: file.size,
+            pageCount,
+            thumbDataUrl,
+          });
+        } catch (err) {
+          showToast(`${file.name}: ${err.message}`, 'error');
+        }
+      }
+
+      hideSpinner();
+      if (!prepared.length) { APP.state = 'idle'; return; }
+
+      showUploadModal(prepared);
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // 업로드 편집 모달 (제목 수정 + 태그 선택)
+    // ═══════════════════════════════════════════════════════
+    function showUploadModal(prepared) {
+      const TAGS  = ['규정', '매뉴얼', '견적', '기타'];
+      const modal = document.getElementById('upload-modal');
+      const body  = document.getElementById('upload-modal-body');
+
+      document.getElementById('upload-modal-count').textContent = `${prepared.length}개 파일`;
+      body.innerHTML = '';
+
+      prepared.forEach((item, idx) => {
+        if (idx > 0) {
+          const hr = document.createElement('hr');
+          hr.className = 'border-border dark:border-slate-700';
+          body.appendChild(hr);
+        }
+
+        const section = document.createElement('div');
+        section.className = 'space-y-2.5';
+
+        // 파일명 표시
+        const fname = document.createElement('p');
+        fname.className = 'text-xs text-text-secondary dark:text-slate-400 truncate';
+        fname.textContent = (prepared.length > 1 ? `${idx + 1}. ` : '') + item.fileName;
+        section.appendChild(fname);
+
+        // 제목 입력
+        const titleLabel = document.createElement('label');
+        titleLabel.className = 'block text-xs font-medium text-text-secondary dark:text-slate-400';
+        titleLabel.textContent = '문서 제목';
+        const titleInput = document.createElement('input');
+        titleInput.type = 'text';
+        titleInput.value = item.title;
+        titleInput.className = 'upload-title-input w-full border border-border dark:border-slate-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-700 text-text-primary dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-navy-700 mt-1';
+        titleInput.addEventListener('input', (e) => {
+          prepared[idx].title = e.target.value.trim() || item.fileName.replace(/\.pdf$/i, '');
+        });
+
+        // 태그 선택
+        const tagsLabel = document.createElement('p');
+        tagsLabel.className = 'text-xs font-medium text-text-secondary dark:text-slate-400 mt-2';
+        tagsLabel.textContent = '카테고리';
+        const tagRow = document.createElement('div');
+        tagRow.className = 'flex flex-wrap gap-2 mt-1';
+
+        TAGS.forEach((tag) => {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.textContent = tag;
+          btn.className = 'text-xs px-3 py-1.5 rounded-full border border-border dark:border-slate-600 text-text-secondary dark:text-slate-400 hover:border-navy-700 hover:text-navy-700 transition-colors focus:outline-none focus:ring-2 focus:ring-navy-700';
+          btn.addEventListener('click', () => {
+            const pos = prepared[idx].tags.indexOf(tag);
+            if (pos === -1) {
+              prepared[idx].tags.push(tag);
+              btn.className = 'text-xs px-3 py-1.5 rounded-full border border-navy-700 bg-navy-700 text-white transition-colors focus:outline-none focus:ring-2 focus:ring-navy-700';
+            } else {
+              prepared[idx].tags.splice(pos, 1);
+              btn.className = 'text-xs px-3 py-1.5 rounded-full border border-border dark:border-slate-600 text-text-secondary dark:text-slate-400 hover:border-navy-700 hover:text-navy-700 transition-colors focus:outline-none focus:ring-2 focus:ring-navy-700';
+            }
+          });
+          tagRow.appendChild(btn);
+        });
+
+        section.appendChild(titleLabel);
+        section.appendChild(titleInput);
+        section.appendChild(tagsLabel);
+        section.appendChild(tagRow);
+        body.appendChild(section);
+      });
+
+      modal.classList.remove('hidden');
+      document.body.style.overflow = 'hidden';
+      body.querySelector('.upload-title-input')?.focus();
+
+      function closeUploadModal() {
+        modal.classList.add('hidden');
+        document.body.style.overflow = '';
+      }
+
+      const confirmBtn = document.getElementById('upload-modal-confirm');
+      const cancelBtn  = document.getElementById('upload-modal-cancel');
+      const backdrop   = document.getElementById('upload-modal-backdrop');
+
+      const onCancel = () => {
+        cleanup();
+        closeUploadModal();
+        APP.state = 'idle';
+      };
+
+      const onConfirm = async () => {
+        cleanup();
+        closeUploadModal();
+        showSpinner(`저장 중… (1 / ${prepared.length})`);
+        let ok = 0;
+        for (let i = 0; i < prepared.length; i++) {
+          const item = prepared[i];
+          updateSpinner(`저장 중… (${i + 1} / ${prepared.length})  —  ${item.fileName}`);
+          try {
+            await dbPut({ id: item.id, data: item.arrayBuffer });
+            addToBodyIndex(item.id, item.textContent);
+            APP.docs.push({
+              id:          item.id,
+              title:       item.title || item.fileName.replace(/\.pdf$/i, ''),
+              tags:        item.tags,
+              fileName:    item.fileName,
+              fileSize:    item.fileSize,
+              uploadedAt:  new Date().toISOString(),
+              pageCount:   item.pageCount,
+              thumbDataUrl: item.thumbDataUrl,
+            });
+            saveDocs(APP.docs);
+            ok++;
+          } catch (err) {
+            showToast(`${item.fileName}: ${err.message}`, 'error');
+          }
+        }
+        hideSpinner();
+        APP.state = 'ready';
+        if (ok > 0) {
+          initFuse(APP.docs);
+          showToast(`${ok}개 파일 저장 완료.`, 'success');
+        }
+        renderCardGrid();
+        updateCategoryCount();
+        await updateStorageGauge();
+      };
+
+      function cleanup() {
+        confirmBtn.removeEventListener('click', onConfirm);
+        cancelBtn.removeEventListener('click', onCancel);
+        backdrop.removeEventListener('click', onCancel);
+      }
+
+      confirmBtn.addEventListener('click', onConfirm);
+      cancelBtn.addEventListener('click', onCancel);
+      backdrop.addEventListener('click', onCancel);
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // 삭제 / 초기화 확인 다이얼로그
+    // ═══════════════════════════════════════════════════════
+    function openDeleteConfirm(id, title) {
+      const dlg = document.getElementById('delete-confirm');
+      document.getElementById('delete-confirm-msg').textContent =
+        `"${title}" 문서를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.`;
+      dlg.showModal();
+
+      const okBtn     = document.getElementById('delete-ok-btn');
+      const cancelBtn = document.getElementById('delete-cancel-btn');
+
+      const onOk = async () => {
+        cleanup();
+        dlg.close();
+        await deleteDoc(id);
+      };
+      const onCancel = () => { cleanup(); dlg.close(); };
+
+      function cleanup() {
+        okBtn.removeEventListener('click', onOk);
+        cancelBtn.removeEventListener('click', onCancel);
+      }
+
+      okBtn.addEventListener('click', onOk);
+      cancelBtn.addEventListener('click', onCancel);
+      okBtn.focus();
+    }
+
+    function openResetConfirm() {
+      const dlg = document.getElementById('reset-confirm');
+      dlg.showModal();
+
+      const okBtn     = document.getElementById('reset-ok-btn');
+      const cancelBtn = document.getElementById('reset-cancel-btn');
+
+      const onOk = async () => {
+        cleanup();
+        dlg.close();
+        showSpinner('초기화 중…');
+        try {
+          await dbClearAll();
+          localStorage.removeItem('pdfbox-docs');
+          localStorage.removeItem('pdfbox-bodyIndex');
+          APP.docs = [];
+          APP.selectedId = null;
+          initFuse([]);
+          renderCardGrid();
+          updateCategoryCount();
+          await updateStorageGauge();
+          showToast('문서함이 초기화되었습니다.', 'success');
+        } catch (err) {
+          showToast('초기화 실패: ' + err.message, 'error');
+        } finally {
+          hideSpinner();
+        }
+      };
+      const onCancel = () => { cleanup(); dlg.close(); };
+
+      function cleanup() {
+        okBtn.removeEventListener('click', onOk);
+        cancelBtn.removeEventListener('click', onCancel);
+      }
+
+      okBtn.addEventListener('click', onOk);
+      cancelBtn.addEventListener('click', onCancel);
+      okBtn.focus();
+    }
+
+    document.getElementById('reset-btn').addEventListener('click', openResetConfirm);
+
+    // ═══════════════════════════════════════════════════════
+    // ZIP 내보내기
+    // ═══════════════════════════════════════════════════════
+    async function exportZip() {
+      if (!APP.docs.length) { showToast('내보낼 문서가 없습니다.', 'warning'); return; }
+      if (typeof JSZip === 'undefined') { showToast('JSZip 라이브러리를 로드할 수 없습니다.', 'error'); return; }
+
+      const totalSize = APP.docs.reduce((s, d) => s + d.fileSize, 0);
+      if (totalSize > 200 * 1024 * 1024) {
+        const mb = (totalSize / 1024 / 1024).toFixed(0);
+        if (!confirm(`총 ${mb}MB입니다. 파일이 크면 시간이 걸릴 수 있습니다. 계속하시겠습니까?`)) return;
+      }
+
+      showSpinner('ZIP 생성 중…');
+      try {
+        const zip   = new JSZip();
+        const folder = zip.folder('files');
+        const meta  = [];
+
+        for (const doc of APP.docs) {
+          try {
+            const record = await dbGet(doc.id);
+            if (record) {
+              folder.file(doc.fileName, record.data);
+              meta.push({
+                id:         doc.id,
+                title:      doc.title,
+                tags:       doc.tags,
+                fileName:   doc.fileName,
+                fileSize:   doc.fileSize,
+                uploadedAt: doc.uploadedAt,
+                pageCount:  doc.pageCount,
+              });
+            }
+          } catch { /* 해당 파일 스킵 */ }
+        }
+
+        zip.file('metadata.json', JSON.stringify(meta, null, 2));
+        const blob = await zip.generateAsync({ type: 'blob' });
+        const url  = URL.createObjectURL(blob);
+        const date = new Date().toISOString().slice(0, 10);
+        const a    = Object.assign(document.createElement('a'), {
+          href: url, download: `samwoo-pdfbox-${date}.zip`,
+        });
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        showToast(`${meta.length}개 문서 ZIP 내보내기 완료.`, 'success');
+      } catch (err) {
+        showToast('ZIP 생성 실패: ' + err.message, 'error');
+      } finally {
+        hideSpinner();
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // 검색 이벤트
+    // ═══════════════════════════════════════════════════════
+    function syncResetBtn() {
+      const active = APP.titleQuery || APP.contentQuery.length >= 2;
+      document.getElementById('reset-search-btn').classList.toggle('hidden', !active);
+    }
+
+    const debouncedRender = debounce(() => {
+      syncResetBtn();
+      renderCardGrid();
+    }, 200);
+
+    document.getElementById('title-search').addEventListener('input', (e) => {
+      APP.titleQuery = e.target.value.trim();
+      debouncedRender();
+    });
+
+    document.getElementById('content-search').addEventListener('input', (e) => {
+      APP.contentQuery = e.target.value.trim();
+      debouncedRender();
+    });
+
+    document.getElementById('reset-search-btn').addEventListener('click', () => {
+      APP.titleQuery   = '';
+      APP.contentQuery = '';
+      document.getElementById('title-search').value   = '';
+      document.getElementById('content-search').value = '';
+      syncResetBtn();
+      renderCardGrid();
+    });
+
+    // ═══════════════════════════════════════════════════════
+    // 파일 입력 & 드래그앤드롭 이벤트
+    // ═══════════════════════════════════════════════════════
+    const fileInput  = document.getElementById('file-input');
+    const uploadZone = document.getElementById('upload-zone');
+
+    function triggerFileOpen() { fileInput.click(); }
+
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files && fileInput.files.length) processFiles(fileInput.files);
+      fileInput.value = '';
+    });
+
+    document.getElementById('upload-btn').addEventListener('click', triggerFileOpen);
+
+    document.getElementById('zone-upload-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      triggerFileOpen();
+    });
+
+    uploadZone.addEventListener('click', (e) => {
+      if (!e.target.closest('#zone-upload-btn')) triggerFileOpen();
+    });
+    uploadZone.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); triggerFileOpen(); }
+    });
+    uploadZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      uploadZone.classList.add('drag-over');
+    });
+    uploadZone.addEventListener('dragleave', (e) => {
+      if (!uploadZone.contains(e.relatedTarget)) uploadZone.classList.remove('drag-over');
+    });
+    uploadZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      uploadZone.classList.remove('drag-over');
+      if (e.dataTransfer?.files?.length) processFiles(e.dataTransfer.files);
+    });
+
+    // 카드 그리드 표시 중에도 전체 페이지 드롭 허용
+    document.addEventListener('dragover', (e) => e.preventDefault());
+    document.addEventListener('drop', (e) => {
+      e.preventDefault();
+      if (e.dataTransfer?.files?.length) processFiles(e.dataTransfer.files);
+    });
+
+    // ═══════════════════════════════════════════════════════
+    // 초기화
+    // ═══════════════════════════════════════════════════════
+    document.getElementById('export-btn').addEventListener('click', exportZip);
+
+    document.addEventListener('DOMContentLoaded', async () => {
+      try {
+        await initDB();
+      } catch (err) {
+        showToast('IndexedDB 초기화 실패: ' + err.message, 'error');
+      }
+      // 테마 버튼 아이콘을 현재 클래스 상태와 동기화
+      applyTheme(document.documentElement.classList.contains('dark'));
+
+      APP.docs = loadDocs();
+      initFuse(APP.docs);
+      renderCardGrid();
+      updateCategoryCount();
+      await updateStorageGauge();
+      APP.state = 'ready';
+    });
+  </script>
+
+  <!-- pdf.js — ES 모듈로 로드, window.pdfjsReady Promise에 노출 -->
+  <script type="module">
+    window.pdfjsReady = (async () => {
+      try {
+        const lib = await import('https://cdn.jsdelivr.net/npm/pdfjs-dist@4.2.67/build/pdf.min.mjs');
+        lib.GlobalWorkerOptions.workerSrc =
+          'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.2.67/build/pdf.worker.min.mjs';
+        window.pdfjsLib = lib;
+        return lib;
+      } catch (err) {
+        console.warn('pdf.js 로드 실패:', err);
+        return null;
+      }
+    })();
+  </script>
+</body>
+</html>
